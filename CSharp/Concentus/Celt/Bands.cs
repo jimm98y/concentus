@@ -2043,7 +2043,7 @@ namespace Concentus.Celt
 
             /* No need to allocate norm for the last band because we don't need an
                output in that band. */
-            norm = Arrays.Scratch(ref norm_buffer, (C * (M * eBands[m.nbEBands - 1] - norm_offset)));
+            norm = Arrays.Scratch(ref norm_buffer, (C * (M * eBands[m.nbEBands - 1] - norm_offset)), false);
             norm2 = M * eBands[m.nbEBands - 1] - norm_offset;
 
             /* We can use the last band as scratch space because we don't need that
@@ -2292,7 +2292,7 @@ namespace Concentus.Celt
 
             /* No need to allocate norm for the last band because we don't need an
                output in that band. */
-            norm = Arrays.Scratch(ref norm_buffer, (C * (M * eBands[m.nbEBands - 1] - norm_offset)));
+            norm = Arrays.Scratch(ref norm_buffer, (C * (M * eBands[m.nbEBands - 1] - norm_offset)), false);
             norm2 = M * eBands[m.nbEBands - 1] - norm_offset;
 
             /* We can use the last band as scratch space because we don't need that

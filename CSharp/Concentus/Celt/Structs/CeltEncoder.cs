@@ -268,7 +268,7 @@ namespace Concentus.Celt.Structs
               int prefilter_tapset, out int pitch, out int gain, out int qgain, int enabled, int nbAvailableBytes)
         {
             int c;
-            int[][] pre = Arrays.Scratch(ref s_pre, CC, N + CeltConstants.COMBFILTER_MAXPERIOD);
+            int[][] pre = Arrays.Scratch(ref s_pre, CC, N + CeltConstants.COMBFILTER_MAXPERIOD, false);
             CeltMode mode; // [porting note] pointer
             int pitch_index;
             int gain1;
@@ -289,7 +289,7 @@ namespace Concentus.Celt.Structs
 
             if (enabled != 0)
             {
-                int[] pitch_buf = Arrays.Scratch(ref s_pitch_buf, (CeltConstants.COMBFILTER_MAXPERIOD + N) >> 1);
+                int[] pitch_buf = Arrays.Scratch(ref s_pitch_buf, (CeltConstants.COMBFILTER_MAXPERIOD + N) >> 1, false);
 
                 Concentus.Celt.Pitch.pitch_downsample(pre, pitch_buf, CeltConstants.COMBFILTER_MAXPERIOD + N, CC);
                 /* Don't search for the fir last 1.5 octave of the range because
@@ -552,7 +552,7 @@ namespace Concentus.Celt.Structs
             if (effEnd > mode.effEBands)
                 effEnd = mode.effEBands;
 
-            input = Arrays.Scratch(ref s_input, CC, N + overlap);
+            input = Arrays.Scratch(ref s_input, CC, N + overlap, false);
 
             sample_max = Inlines.MAX32(this.overlap_max, Inlines.celt_maxabs32(pcm, pcm_ptr, C * (N - overlap) / this.upsample));
             this.overlap_max = Inlines.celt_maxabs32(pcm, pcm_ptr + (C * (N - overlap) / this.upsample), C * overlap / this.upsample);
@@ -640,7 +640,7 @@ namespace Concentus.Celt.Structs
                 transient_got_disabled = 1;
             }
 
-            freq = Arrays.Scratch(ref s_freq, CC, N); /*< Interleaved signal MDCTs */
+            freq = Arrays.Scratch(ref s_freq, CC, N, false); /*< Interleaved signal MDCTs */
             bandE = Arrays.Scratch(ref s_bandE, CC, nbEBands);
             bandLogE = Arrays.Scratch(ref s_bandLogE, CC, nbEBands);
 
@@ -813,7 +813,7 @@ namespace Concentus.Celt.Structs
             if (LM > 0 && enc.tell() + 3 <= total_bits)
                 enc.enc_bit_logp(compressed.Slice(compressed_ptr), isTransient, 3);
 
-            X = Arrays.Scratch(ref s_X, C, N);         /*< Interleaved normalised MDCTs */
+            X = Arrays.Scratch(ref s_X, C, N, false);         /*< Interleaved normalised MDCTs */
 
             /* Band normalisation */
             Bands.normalise_bands(mode, freq, X, bandE, effEnd, C, M);

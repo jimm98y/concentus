@@ -48,15 +48,17 @@ namespace Concentus.Common.CPlusPlus
         /// <summary>
         /// A zeroed array of exactly this length, as new T[length], from a buffer kept by the caller:
         /// allocated only when the length changes, so a stream of one frame size allocates nothing.
+        /// Of <paramref name="clear"/> false, not zeroed: what the last call left - of an array libopus leaves
+        /// uninitialized (VARDECL/ALLOC), written all before it is read.
         /// </summary>
-        internal static T[] Scratch<T>(ref T[] buffer, int length)
+        internal static T[] Scratch<T>(ref T[] buffer, int length, bool clear = true)
         {
             // of none: the buffer kept for the next that needs it
             if (length == 0)
                 return Empty<T>.Array;
             if (buffer == null || buffer.Length != length)
                 buffer = new T[length];
-            else
+            else if (clear)
                 Array.Clear(buffer, 0, length);
             return buffer;
         }
@@ -64,12 +66,12 @@ namespace Concentus.Common.CPlusPlus
         /// <summary>
         /// As InitTwoDimensionalArray, from a buffer kept by the caller.
         /// </summary>
-        internal static T[][] Scratch<T>(ref T[][] buffer, int x, int y)
+        internal static T[][] Scratch<T>(ref T[][] buffer, int x, int y, bool clear = true)
         {
             if (buffer == null || buffer.Length != x)
                 buffer = new T[x][];
             for (int c = 0; c < x; c++)
-                Scratch(ref buffer[c], y);
+                Scratch(ref buffer[c], y, clear);
             return buffer;
         }
 

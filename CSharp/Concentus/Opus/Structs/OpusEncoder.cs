@@ -888,7 +888,7 @@ namespace Concentus.Structs
 
             enc.enc_init((uint)(max_data_bytes - 1));
 
-            pcm_buf = Arrays.Scratch(ref this.s_pcm_buf, (total_buffer + frame_size) * this.channels);
+            pcm_buf = Arrays.Scratch(ref this.s_pcm_buf, (total_buffer + frame_size) * this.channels, false);
             Arrays.MemCopy(this.delay_buffer, ((this.encoder_buffer - total_buffer) * this.channels), pcm_buf, 0, total_buffer * this.channels);
 
             if (this.mode == OpusMode.MODE_CELT_ONLY)
