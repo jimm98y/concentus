@@ -42,6 +42,7 @@ namespace Concentus.Celt
     using System;
     using System.Diagnostics;
     using System.Numerics;
+    using System.Runtime.InteropServices;
 
     internal static class Bands
     {
@@ -420,6 +421,30 @@ namespace Concentus.Celt
         }
 
         /* Decide whether we should spread the pulses in the current frame */
+#if NET8_0_OR_GREATER
+        // spreading_decision's rough CDF of whole vectors, exactly as its scalar: of each, x2N = MULT16_16(MULT16_16_Q15(x, x), N),
+        //  counted below 0.25, 0.0625 and 0.015625 in Q13 - of a mask of -1 of each below, taken off the count. The values done back
+        private static int CountBelowVector(Span<int> x, int N, ref int t0, ref int t1, ref int t2)
+        {
+            int n = Vector.IsHardwareAccelerated ? x.Length - x.Length % Vector<int>.Count : 0;
+            ref int xr = ref MemoryMarshal.GetReference(x);
+            Vector<int> vn = new Vector<int>(N), c0 = Vector<int>.Zero, c1 = Vector<int>.Zero, c2 = Vector<int>.Zero;
+            Vector<int> q0 = new Vector<int>(2048), q1 = new Vector<int>(512), q2 = new Vector<int>(128);
+            for (int i = 0; i < n; i += Vector<int>.Count)
+            {
+                Vector<int> v = Vector.LoadUnsafe(ref xr, (nuint)i);
+                Vector<int> x2N = Vector.ShiftRightArithmetic(v * v, 15) * vn;
+                c0 -= Vector.LessThan(x2N, q0);
+                c1 -= Vector.LessThan(x2N, q1);
+                c2 -= Vector.LessThan(x2N, q2);
+            }
+            t0 += Vector.Sum(c0);
+            t1 += Vector.Sum(c1);
+            t2 += Vector.Sum(c2);
+            return n;
+        }
+#endif
+
         internal static int spreading_decision(CeltMode m, int[][] X, ref int average,
               int last_decision, ref int hf_average, ref int tapset_decision, int update_hf,
               int end, int C, int M)
@@ -452,7 +477,11 @@ namespace Concentus.Celt
                     if (N <= 8)
                         continue;
                     /* Compute rough CDF of |x[j]| */
-                    for (j = x_ptr; j < N + x_ptr; j++)
+                    j = x_ptr;
+#if NET8_0_OR_GREATER
+                    j += CountBelowVector(x.AsSpan(x_ptr, N), N, ref tcount[0], ref tcount[1], ref tcount[2]);
+#endif
+                    for (; j < N + x_ptr; j++)
                     {
                         int x2N; /* Q13 */
 
