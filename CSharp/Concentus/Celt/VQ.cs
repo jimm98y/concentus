@@ -41,6 +41,10 @@ namespace Concentus.Celt
     using Concentus.Common.CPlusPlus;
     using System;
     using System.Diagnostics;
+#if NET7_0_OR_GREATER
+    using System.Runtime.InteropServices;
+    using System.Runtime.Intrinsics;
+#endif
 
     internal static class VQ
     {
@@ -180,6 +184,78 @@ namespace Concentus.Celt
             return collapse_mask;
         }
 
+#if NET7_0_OR_GREATER
+        // alg_quant's loops of each position, of whole vectors on .NET 7+, exactly as their scalar - of wrapping int sums, of
+        //  any order the same: each the position its scalar goes on at back, 0 of no SIMD
+
+        // the sign of each, 1 or -1, and the magnitude; iy and y of the stackalloc zeroed already
+        private static int SignAbsVector(Span<int> x, Span<int> signx)
+        {
+            int n = Vector128.IsHardwareAccelerated ? x.Length & ~3 : 0;
+            ref int xr = ref MemoryMarshal.GetReference(x);
+            ref int sr = ref MemoryMarshal.GetReference(signx);
+            for (int i = 0; i < n; i += 4)
+            {
+                Vector128<int> v = Vector128.LoadUnsafe(ref xr, (nuint)i);
+                Vector128.ConditionalSelect(Vector128.GreaterThan(v, Vector128<int>.Zero), Vector128<int>.One, -Vector128<int>.One).StoreUnsafe(ref sr, (nuint)i);
+                Vector128.Abs(v).StoreUnsafe(ref xr, (nuint)i);
+            }
+            return n;
+        }
+
+        private static int SumVector(Span<int> x, ref int sum)
+        {
+            int n = Vector128.IsHardwareAccelerated ? x.Length & ~3 : 0;
+            ref int xr = ref MemoryMarshal.GetReference(x);
+            Vector128<int> acc = Vector128<int>.Zero;
+            for (int i = 0; i < n; i += 4)
+                acc += Vector128.LoadUnsafe(ref xr, (nuint)i);
+            sum += Vector128.Sum(acc);
+            return n;
+        }
+
+        // the pre-search's projection: iy = MULT16_16_Q15(X, rcp), y = 2 iy, yy += iy^2, xy += X iy, pulsesLeft -= iy
+        private static int ProjectVector(Span<int> x, Span<int> iy, Span<int> y, int rcp, ref int yy, ref int xy, ref int pulsesLeft)
+        {
+            int n = Vector128.IsHardwareAccelerated ? x.Length & ~3 : 0;
+            ref int xr = ref MemoryMarshal.GetReference(x);
+            ref int ir = ref MemoryMarshal.GetReference(iy);
+            ref int yr = ref MemoryMarshal.GetReference(y);
+            Vector128<int> vrcp = Vector128.Create(rcp), accYY = Vector128<int>.Zero, accXY = Vector128<int>.Zero, accIY = Vector128<int>.Zero;
+            for (int i = 0; i < n; i += 4)
+            {
+                Vector128<int> v = Vector128.LoadUnsafe(ref xr, (nuint)i);
+                Vector128<int> q = Vector128.ShiftRightArithmetic(v * vrcp, 15);
+                q.StoreUnsafe(ref ir, (nuint)i);
+                (q + q).StoreUnsafe(ref yr, (nuint)i);
+                accYY += q * q;
+                accXY += v * q;
+                accIY += q;
+            }
+            yy += Vector128.Sum(accYY);
+            xy += Vector128.Sum(accXY);
+            pulsesLeft -= Vector128.Sum(accIY);
+            return n;
+        }
+
+        // the sign put back of X, and of iy
+        private static int RestoreSignVector(Span<int> x, Span<int> signx, Span<int> iy)
+        {
+            int n = Vector128.IsHardwareAccelerated ? x.Length & ~3 : 0;
+            ref int xr = ref MemoryMarshal.GetReference(x);
+            ref int sr = ref MemoryMarshal.GetReference(signx);
+            ref int ir = ref MemoryMarshal.GetReference(iy);
+            for (int i = 0; i < n; i += 4)
+            {
+                Vector128<int> s = Vector128.LoadUnsafe(ref sr, (nuint)i);
+                (s * Vector128.LoadUnsafe(ref xr, (nuint)i)).StoreUnsafe(ref xr, (nuint)i);
+                Vector128<int> q = Vector128.LoadUnsafe(ref ir, (nuint)i);
+                Vector128.ConditionalSelect(Vector128.LessThan(s, Vector128<int>.Zero), -q, q).StoreUnsafe(ref ir, (nuint)i);
+            }
+            return n;
+        }
+#endif
+
         internal static uint alg_quant(Span<int> X, int X_ptr, int N, int K, int spread, int B, EntropyCoder enc, Span<byte> encodedData)
         {
             Span<int> y = stackalloc int[N];
@@ -201,7 +277,10 @@ namespace Concentus.Celt
             /* Get rid of the sign */
             sum = 0;
             j = 0;
-            do
+#if NET7_0_OR_GREATER
+            j = SignAbsVector(X.Slice(X_ptr, N), signx);
+#endif
+            for (; j < N; j++)
             {
                 int xpj = X_ptr + j;
 
@@ -212,7 +291,7 @@ namespace Concentus.Celt
 
                 iy[j] = 0;
                 y[j] = 0;
-            } while (++j < N);
+            }
 
             xy = yy = 0;
 
@@ -222,10 +301,14 @@ namespace Concentus.Celt
             if (K > (N >> 1))
             {
                 int rcp;
-                j = 0; do
+                j = 0;
+#if NET7_0_OR_GREATER
+                j = SumVector(X.Slice(X_ptr, N), ref sum);
+#endif
+                for (; j < N; j++)
                 {
                     sum += X[X_ptr + j];
-                } while (++j < N);
+                }
 
                 /* If X is too small, just replace it with a pulse at 0 */
                 /* Prevents infinities and NaNs from causing too many pulses
@@ -244,8 +327,10 @@ namespace Concentus.Celt
 
                 rcp = Inlines.EXTRACT16(Inlines.MULT16_32_Q16((K - 1), Inlines.celt_rcp(sum)));
                 j = 0;
-
-                do
+#if NET7_0_OR_GREATER
+                j = ProjectVector(X.Slice(X_ptr, N), iy, y, rcp, ref yy, ref xy, ref pulsesLeft);
+#endif
+                for (; j < N; j++)
                 {
                     /* It's really important to round *towards zero* here */
                     iy[j] = Inlines.MULT16_16_Q15(X[X_ptr + j], rcp);
@@ -254,7 +339,7 @@ namespace Concentus.Celt
                     xy = Inlines.MAC16_16(xy, X[X_ptr + j], y[j]);
                     y[j] *= 2;
                     pulsesLeft -= iy[j];
-                } while (++j < N);
+                }
             }
 
             Inlines.OpusAssert(pulsesLeft >= 1, "Allocated too many pulses in the quick pass");
@@ -317,13 +402,16 @@ namespace Concentus.Celt
 
             /* Put the original sign back */
             j = 0;
-            do
+#if NET7_0_OR_GREATER
+            j = RestoreSignVector(X.Slice(X_ptr, N), signx, iy);
+#endif
+            for (; j < N; j++)
             {
                 X[X_ptr + j] = (Inlines.MULT16_16(signx[j], X[X_ptr + j]));
                 /* OPT: Make sure your compiler uses a conditional move here rather than
                      a branch. */
                 iy[j] = signx[j] < 0 ? -iy[j] : iy[j];
-            } while (++j < N);
+            }
 
             CWRS.encode_pulses(iy, N, K, enc, encodedData);
 
