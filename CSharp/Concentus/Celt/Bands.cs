@@ -104,6 +104,34 @@ namespace Concentus.Celt
         }
 
         /* Compute the amplitude (sqrt energy) in each of the bands */
+#if NET8_0_OR_GREATER
+        // compute_band_energies' sum of a band, of whole vectors then of the rest, exactly as its scalar: of each,
+        //  MAC16_16 of EXTRACT16(SHR32(x, shift)), or of SHL32(x, -shift) - of wrapping int sums, of any order the same
+        private static int BandEnergy(Span<int> x, int shift)
+        {
+            int j = 0, sum = 0;
+            if (Vector.IsHardwareAccelerated && x.Length >= Vector<int>.Count)
+            {
+                ref int xr = ref MemoryMarshal.GetReference(x);
+                Vector<int> acc = Vector<int>.Zero;
+                for (; j <= x.Length - Vector<int>.Count; j += Vector<int>.Count)
+                {
+                    Vector<int> v = Vector.LoadUnsafe(ref xr, (nuint)j);
+                    v = shift > 0 ? Vector.ShiftRightArithmetic(v, shift) : Vector.ShiftLeft(v, -shift);
+                    v = Vector.ShiftRightArithmetic(Vector.ShiftLeft(v, 16), 16);
+                    acc += v * v;
+                }
+                sum = Vector.Sum(acc);
+            }
+            for (; j < x.Length; j++)
+            {
+                int v = shift > 0 ? Inlines.EXTRACT16(Inlines.SHR32(x[j], shift)) : Inlines.EXTRACT16(Inlines.SHL32(x[j], -shift));
+                sum = Inlines.MAC16_16(sum, v, v);
+            }
+            return sum;
+        }
+#endif
+
         internal static void compute_band_energies(CeltMode m, int[][] X, int[][] bandE, int end, int C, int LM)
         {
             int i, c, N;
@@ -123,6 +151,9 @@ namespace Concentus.Celt
                     {
                         int shift = Inlines.celt_ilog2(maxval) - 14 + (((m.logN[i] >> EntropyCoder.BITRES) + LM + 1) >> 1);
                         j = eBands[i] << LM;
+#if NET8_0_OR_GREATER
+                        sum = BandEnergy(X[c].AsSpan(j, (eBands[i + 1] - eBands[i]) << LM), shift);
+#else
                         if (shift > 0)
                         {
                             do
@@ -138,6 +169,7 @@ namespace Concentus.Celt
                                        Inlines.EXTRACT16(Inlines.SHL32(X[c][j], -shift)));
                             } while (++j < eBands[i + 1] << LM);
                         }
+#endif
                         /* We're adding one here to ensure the normalized band isn't larger than unity norm */
                         bandE[c][i] = CeltConstants.EPSILON + Inlines.VSHR32(Inlines.celt_sqrt(sum), -shift);
                     }

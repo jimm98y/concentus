@@ -803,7 +803,27 @@ namespace Concentus.Common
             int i;
             int maxval = 0;
             int minval = 0;
-            for (i = x_ptr; i < x_ptr + len; i++)
+            i = x_ptr;
+#if NET8_0_OR_GREATER
+            // of whole vectors, the largest and the smallest of each lane, then of the lanes
+            if (System.Numerics.Vector.IsHardwareAccelerated && len >= System.Numerics.Vector<int>.Count)
+            {
+                ref int xr = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(x);
+                System.Numerics.Vector<int> vmax = System.Numerics.Vector<int>.Zero, vmin = System.Numerics.Vector<int>.Zero;
+                for (; i <= x_ptr + len - System.Numerics.Vector<int>.Count; i += System.Numerics.Vector<int>.Count)
+                {
+                    System.Numerics.Vector<int> v = System.Numerics.Vector.LoadUnsafe(ref xr, (nuint)i);
+                    vmax = System.Numerics.Vector.Max(vmax, v);
+                    vmin = System.Numerics.Vector.Min(vmin, v);
+                }
+                for (int l = 0; l < System.Numerics.Vector<int>.Count; l++)
+                {
+                    maxval = MAX32(maxval, vmax[l]);
+                    minval = MIN32(minval, vmin[l]);
+                }
+            }
+#endif
+            for (; i < x_ptr + len; i++)
             {
                 maxval = MAX32(maxval, x[i]);
                 minval = MIN32(minval, x[i]);
