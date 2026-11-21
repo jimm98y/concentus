@@ -319,11 +319,11 @@ namespace Concentus.Celt
             while (idx < vectorEnd)
             {
                 // as new Vector<int>(array, index), of a span
-                Vector<int> xVec = MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(x.Slice(x_idx + idx)));
-                acc0 += xVec * MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(y.Slice(y_idx + idx)));
-                acc1 += xVec * MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(y.Slice(y_idx + idx + 1)));
-                acc2 += xVec * MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(y.Slice(y_idx + idx + 2)));
-                acc3 += xVec * MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(y.Slice(y_idx + idx + 3)));
+                Vector<int> xVec = LoadVector(x, x_idx + idx);
+                acc0 += xVec * LoadVector(y, y_idx + idx);
+                acc1 += xVec * LoadVector(y, y_idx + idx + 1);
+                acc2 += xVec * LoadVector(y, y_idx + idx + 2);
+                acc3 += xVec * LoadVector(y, y_idx + idx + 3);
                 idx += Vector<int>.Count;
             }
             sum0 += Vector.Dot(acc0, Vector<int>.One);
@@ -344,6 +344,14 @@ namespace Concentus.Celt
             }
         }
 
+        // a vector of the span at the index: of .NET 8+ of its reference, not sliced and bounds checked of each load - the
+        //  loops that call it keep within the span. Of the xcorr kernel and the int inner products
+#if NET8_0_OR_GREATER
+        private static Vector<int> LoadVector(Span<int> s, int index) => Vector.LoadUnsafe(ref MemoryMarshal.GetReference(s), (nuint)index);
+#else
+        private static Vector<int> LoadVector(Span<int> s, int index) => MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(s.Slice(index)));
+#endif
+
         internal static int celt_inner_prod(Span<short> x, Span<short> y, int N)
         {
             int i;
@@ -361,7 +369,7 @@ namespace Concentus.Celt
             {
                 Vector<int> acc = Vector<int>.Zero;
                 for (; i <= N - Vector<int>.Count; i += Vector<int>.Count)
-                    acc += MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(x.Slice(i))) * MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(y.Slice(i)));
+                    acc += LoadVector(x, i) * LoadVector(y, i);
                 xy = Vector.Dot(acc, Vector<int>.One);
             }
             for (; i < N; i++)
@@ -379,9 +387,9 @@ namespace Concentus.Celt
                 Vector<int> acc1 = Vector<int>.Zero, acc2 = Vector<int>.Zero;
                 for (; i <= N - Vector<int>.Count; i += Vector<int>.Count)
                 {
-                    Vector<int> xv = MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(x.Slice(i)));
-                    acc1 += xv * MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(y01.Slice(i)));
-                    acc2 += xv * MemoryMarshal.Read<Vector<int>>(MemoryMarshal.AsBytes(y02.Slice(i)));
+                    Vector<int> xv = LoadVector(x, i);
+                    acc1 += xv * LoadVector(y01, i);
+                    acc2 += xv * LoadVector(y02, i);
                 }
                 xy01 = Vector.Dot(acc1, Vector<int>.One);
                 xy02 = Vector.Dot(acc2, Vector<int>.One);
