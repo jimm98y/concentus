@@ -62,6 +62,7 @@ using Concentus.Common;
 using Concentus;
 using System;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace Concentus.Common
 {
@@ -320,17 +321,21 @@ namespace Concentus.Common
                 int iptr = input_ptr + last_sample;
 
                 int j = 0;
-                sum = 0;
-                int stop = N - (N % Vector<float>.Count);
-                while (j < stop)
+                // four sums, of their own chains of adds rather than one: of one, each add waited for the last
+                int W = Vector<float>.Count;
+                ref float taps = ref this.sinc_table[sinct];
+                ref float samples = ref MemoryMarshal.GetReference(input.Slice(iptr, N));
+                Vector<float> acc0 = Vector<float>.Zero, acc1 = Vector<float>.Zero, acc2 = Vector<float>.Zero, acc3 = Vector<float>.Zero;
+                for (; j + 4 * W <= N; j += 4 * W)
                 {
-                    // use Dot() as a proxy for Sum()
-                    sum += Vector.Dot(Vector<float>.One,
-                        Vector.Multiply(
-                            new Vector<float>(this.sinc_table, sinct + j),
-                            new Vector<float>(input.Slice(iptr + j, Vector<float>.Count))));
-                    j += Vector<float>.Count;
+                    acc0 += Vector.LoadUnsafe(ref taps, (nuint)j) * Vector.LoadUnsafe(ref samples, (nuint)j);
+                    acc1 += Vector.LoadUnsafe(ref taps, (nuint)(j + W)) * Vector.LoadUnsafe(ref samples, (nuint)(j + W));
+                    acc2 += Vector.LoadUnsafe(ref taps, (nuint)(j + 2 * W)) * Vector.LoadUnsafe(ref samples, (nuint)(j + 2 * W));
+                    acc3 += Vector.LoadUnsafe(ref taps, (nuint)(j + 3 * W)) * Vector.LoadUnsafe(ref samples, (nuint)(j + 3 * W));
                 }
+                for (; j + W <= N; j += W)
+                    acc0 += Vector.LoadUnsafe(ref taps, (nuint)j) * Vector.LoadUnsafe(ref samples, (nuint)j);
+                sum = Vector.Sum((acc0 + acc1) + (acc2 + acc3));
                 while (j < N)
                 {
                     sum += this.sinc_table[sinct + j] * input[iptr + j];
