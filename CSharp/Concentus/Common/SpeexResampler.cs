@@ -801,7 +801,20 @@ namespace Concentus.Common
                 {
                     if (input != null)
                     {
-                        for (j = 0; j < ichunk; ++j)
+                        j = 0;
+#if NET8_0_OR_GREATER
+                        // of one channel, of whole vectors: each value as the loop below converts it
+                        if (istride_save == 1)
+                        {
+                            for (; j + Vector<short>.Count <= ichunk; j += Vector<short>.Count)
+                            {
+                                Vector.Widen(new Vector<short>(input.Slice(input_ptr + j)), out Vector<int> lo, out Vector<int> hi);
+                                Vector.ConvertToSingle(lo).CopyTo(this.mem.AsSpan(x + j + this.filt_len - 1));
+                                Vector.ConvertToSingle(hi).CopyTo(this.mem.AsSpan(x + j + this.filt_len - 1 + Vector<int>.Count));
+                            }
+                        }
+#endif
+                        for (; j < ichunk; ++j)
                             this.mem[x + j + this.filt_len - 1] = input[input_ptr + j * istride_save];
                     }
                     else
@@ -818,7 +831,21 @@ namespace Concentus.Common
                     ochunk = 0;
                 }
 
-                for (j = 0; j < ochunk + omagic; ++j)
+                j = 0;
+#if NET8_0_OR_GREATER
+                // of one channel, of whole vectors: clamped then truncated, as FLOAT2INT of each
+                if (ostride_save == 1)
+                {
+                    Vector<float> min = new Vector<float>(short.MinValue), max = new Vector<float>(short.MaxValue);
+                    for (; j + Vector<short>.Count <= ochunk + omagic; j += Vector<short>.Count)
+                    {
+                        Vector<int> lo = Vector.ConvertToInt32(Vector.Min(Vector.Max(new Vector<float>(ystack.Slice(j)), min), max));
+                        Vector<int> hi = Vector.ConvertToInt32(Vector.Min(Vector.Max(new Vector<float>(ystack.Slice(j + Vector<int>.Count)), min), max));
+                        Vector.Narrow(lo, hi).CopyTo(output.Slice(output_ptr + j));
+                    }
+                }
+#endif
+                for (; j < ochunk + omagic; ++j)
                 {
                     output[output_ptr + j * ostride_save] = FLOAT2INT(ystack[j]);
                 }
