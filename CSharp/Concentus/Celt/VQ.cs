@@ -55,6 +55,31 @@ namespace Concentus.Celt
             int Xptr;
             Xptr = X_ptr;
             ms = Inlines.NEG16(s);
+            if (stride == 1 && len > 1)
+            {
+                // Of a stride of 1 each step's value is the next's: carried of a local, not read back of the element
+                // just written - the next waited for the store. The values as the loops below make them
+                int carry = X[X_ptr];
+                for (i = 0; i < len - 1; i++)
+                {
+                    int x2 = X[X_ptr + i + 1];
+                    X[X_ptr + i] = Inlines.EXTRACT16(Inlines.PSHR32(Inlines.MAC16_16(Inlines.MULT16_16(c, carry), ms, x2), 15));
+                    carry = Inlines.EXTRACT16(Inlines.PSHR32(Inlines.MAC16_16(Inlines.MULT16_16(c, x2), s, carry), 15));
+                }
+                X[X_ptr + len - 1] = carry;
+                if (len > 2)
+                {
+                    carry = X[X_ptr + len - 2];
+                    for (i = len - 3; i >= 0; i--)
+                    {
+                        int x1 = X[X_ptr + i];
+                        X[X_ptr + i + 1] = Inlines.EXTRACT16(Inlines.PSHR32(Inlines.MAC16_16(Inlines.MULT16_16(c, carry), s, x1), 15));
+                        carry = Inlines.EXTRACT16(Inlines.PSHR32(Inlines.MAC16_16(Inlines.MULT16_16(c, x1), ms, carry), 15));
+                    }
+                    X[X_ptr] = carry;
+                }
+                return;
+            }
             for (i = 0; i < len - stride; i++)
             {
                 int x1, x2;
