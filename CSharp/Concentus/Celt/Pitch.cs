@@ -41,6 +41,7 @@ namespace Concentus.Celt
     using Concentus.Common.CPlusPlus;
     using System;
     using System.Diagnostics;
+    using System.Numerics;
 
     internal static class Pitch
     {
@@ -265,7 +266,20 @@ namespace Concentus.Celt
                     continue;
                 }
                 sum = 0;
-                for (j = 0; j < len >> 1; j++)
+                j = 0;
+#if NET8_0_OR_GREATER
+                // of whole vectors: wrapping int sums of any order are the same
+                if (Vector.IsHardwareAccelerated)
+                {
+                    ref int xr = ref x_lp[x_lp_ptr];
+                    ref int yr = ref y[i];
+                    Vector<int> acc = Vector<int>.Zero;
+                    for (; j + Vector<int>.Count <= len >> 1; j += Vector<int>.Count)
+                        acc += Vector.ShiftRightArithmetic(Vector.LoadUnsafe(ref xr, (nuint)j) * Vector.LoadUnsafe(ref yr, (nuint)j), shift);
+                    sum = Vector.Sum(acc);
+                }
+#endif
+                for (; j < len >> 1; j++)
                     sum += Inlines.SHR32(Inlines.MULT16_16(x_lp[x_lp_ptr + j], y[i + j]), shift);
                 
                 xcorr[i] = Inlines.MAX32(-1, sum);
