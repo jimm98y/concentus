@@ -83,7 +83,34 @@ namespace Concentus.Celt
                 tw = ((short)(0.5 + (0.7071067812f) * (((int)1) << (15))))/*Inlines.QCONST16(0.7071067812f, 15)*/;
                 /* We know that m==4 here because the radix-2 is just after a radix-4 */
                 Inlines.OpusAssert(m == 4);
-                for (i = 0; i < N; i++)
+                i = 0;
+#if NET7_0_OR_GREATER
+                if (Vector128.IsHardwareAccelerated)
+                {
+                    // The four complex values of each half two at a time. Of the second half's, t as the loop below has it:
+                    // the first as it is, the second (r + i, i - r) times tw, the third (i, -r), the fourth
+                    // (i - r, -i - r) times tw - each of the value and of its swapped (i, r), then the half of tw chosen
+                    Vector128<int> swap = Vector128.Create(1, 0, 3, 2), low = Vector128.Create(-1, -1, 0, 0);
+                    for (; i < N; i++)
+                    {
+                        Vector128<int> b = Vector128.Create((ReadOnlySpan<int>)Fout.Slice(fout_ptr + 8, 4));
+                        Vector128<int> t = b + Vector128.Shuffle(b, swap) * Vector128.Create(0, 0, 1, -1);
+                        t = Vector128.ConditionalSelect(low, t, S_MUL(t, tw));
+                        Vector128<int> a = Vector128.Create((ReadOnlySpan<int>)Fout.Slice(fout_ptr, 4));
+                        (a - t).CopyTo(Fout.Slice(fout_ptr + 8, 4));
+                        (a + t).CopyTo(Fout.Slice(fout_ptr, 4));
+
+                        b = Vector128.Create((ReadOnlySpan<int>)Fout.Slice(fout_ptr + 12, 4));
+                        t = Vector128.Shuffle(b, swap) * Vector128.Create(1, -1, 1, -1) + b * Vector128.Create(0, 0, -1, -1);
+                        t = Vector128.ConditionalSelect(low, t, S_MUL(t, tw));
+                        a = Vector128.Create((ReadOnlySpan<int>)Fout.Slice(fout_ptr + 4, 4));
+                        (a - t).CopyTo(Fout.Slice(fout_ptr + 12, 4));
+                        (a + t).CopyTo(Fout.Slice(fout_ptr + 4, 4));
+                        fout_ptr += 16;
+                    }
+                }
+#endif
+                for (; i < N; i++)
                 {
                     int t_r, t_i;
                     Fout2 = fout_ptr + 8;
@@ -197,7 +224,27 @@ namespace Concentus.Celt
             {
                 /* Degenerate case where all the twiddles are 1. */
                 int scratch0, scratch1, scratch2, scratch3;
-                for (i = 0; i < N; i++)
+                i = 0;
+#if NET7_0_OR_GREATER
+                if (Vector128.IsHardwareAccelerated)
+                {
+                    // The four complex values of a group as two vectors, (F0, F1) and (F2, F3): their sum (F0 + F2, F1 + F3)
+                    // and difference, then each with its halves swapped - of the low half of each result the values of
+                    // the loop below, of its additions and subtractions
+                    Vector128<int> halves = Vector128.Create(2, 3, 0, 1), low = Vector128.Create(-1, -1, 0, 0);
+                    for (; i < N; i++)
+                    {
+                        Vector128<int> a = Vector128.Create((ReadOnlySpan<int>)Fout.Slice(fout_ptr, 4)), b = Vector128.Create((ReadOnlySpan<int>)Fout.Slice(fout_ptr + 4, 4));
+                        Vector128<int> sum = a + b, diff = a - b;
+                        Vector128<int> sumSwapped = Vector128.Shuffle(sum, halves), rotated = Vector128.Shuffle(MulMinusJ(diff), halves);
+                        // F0 = (F0 + F2) + (F1 + F3), F1 = (F0 - F2) + -j (F1 - F3); F2 and F3 of the differences
+                        Vector128.ConditionalSelect(low, sum + sumSwapped, Vector128.Shuffle(diff + rotated, halves)).CopyTo(Fout.Slice(fout_ptr, 4));
+                        Vector128.ConditionalSelect(low, sum - sumSwapped, Vector128.Shuffle(diff - rotated, halves)).CopyTo(Fout.Slice(fout_ptr + 4, 4));
+                        fout_ptr += 8;
+                    }
+                }
+#endif
+                for (; i < N; i++)
                 {
                     scratch0 = Fout[fout_ptr + 0] - Fout[fout_ptr + 4];
                     scratch1 = Fout[fout_ptr + 1] - Fout[fout_ptr + 5];
