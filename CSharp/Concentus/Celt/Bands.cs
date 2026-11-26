@@ -198,10 +198,24 @@ namespace Concentus.Celt
                     shift = Inlines.celt_zlog2(bandE[c][i]) - 13;
                     E = Inlines.VSHR32(bandE[c][i], shift);
                     g = Inlines.EXTRACT16(Inlines.celt_rcp(Inlines.SHL32(E, 3)));
-                    j = M * eBands[i]; do
+                    j = M * eBands[i];
+#if NET7_0_OR_GREATER
+                    // of whole vectors: of each lane the operations of the loop below
+                    if (Vector.IsHardwareAccelerated)
+                    {
+                        int[] f = freq[c], x = X[c];
+                        for (; j + Vector<int>.Count <= M * eBands[i + 1]; j += Vector<int>.Count)
+                        {
+                            Vector<int> v = new Vector<int>(f, j);
+                            v = shift > 1 ? Vector.ShiftRightArithmetic(v, shift - 1) : Vector.ShiftLeft(v, 1 - shift);
+                            Vector.ShiftRightArithmetic(v * g, 15).CopyTo(x, j);
+                        }
+                    }
+#endif
+                    for (; j < M * eBands[i + 1]; j++)
                     {
                         X[c][j] = Inlines.MULT16_16_Q15(Inlines.VSHR32(freq[c][j], shift - 1), g);
-                    } while (++j < M * eBands[i + 1]);
+                    }
                 } while (++i < end);
             } while (++c < C);
         }
