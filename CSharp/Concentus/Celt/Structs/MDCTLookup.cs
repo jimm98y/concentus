@@ -52,6 +52,9 @@ namespace Concentus.Celt.Structs
 
         internal short[] trig = null;
 
+        // of each shift, the trig values each twice: of the MDCT's vectors, made of its first frame
+        internal int[][] trigTwice = new int[4][];
+
         internal MDCTLookup()
         {
         }

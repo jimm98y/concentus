@@ -41,11 +41,38 @@ namespace Concentus.Celt
     using Concentus.Common.CPlusPlus;
     using System;
     using System.Diagnostics;
+#if NET8_0_OR_GREATER
+    using System.Runtime.CompilerServices;
+    using System.Runtime.InteropServices;
+    using System.Runtime.Intrinsics;
+#endif
 
     internal static class MDCT
     {
 
         /* Forward MDCT trashes the input array */
+#if NET8_0_OR_GREATER
+        private static readonly Vector128<int> Swap = Vector128.Create(1, 0, 3, 2);
+        private static readonly Vector128<int> NegEven = Vector128.Create(-1, 1, -1, 1);
+
+        // S_MUL of each lane: MULT16_32_Q15 of b, a
+        private static Vector128<int> SMul(Vector128<int> a, Vector128<int> b) => ((b * (a >> 16)) << 1) + ((b * (a & Vector128.Create(0xFFFF))) >> 15);
+
+        // of a shift, its trig values each twice - of a complex value's two lanes: the N4 of t0, then of t1; made once
+        private static int[] TrigTwice(MDCTLookup l, int shift, int trig_ptr, int N4)
+        {
+            int[] twice = l.trigTwice[shift];
+            if (twice == null)
+            {
+                twice = new int[4 * N4];
+                for (int i = 0; i < 2 * N4; i++)
+                    twice[2 * i] = twice[2 * i + 1] = l.trig[trig_ptr + i];
+                l.trigTwice[shift] = twice;
+            }
+            return twice;
+        }
+#endif
+
         internal static void clt_mdct_forward(MDCTLookup l, Span<int> input, int input_ptr, Span<int> output, int output_ptr,
             int[] window, int overlap, int shift, int stride)
         {
@@ -116,7 +143,32 @@ namespace Concentus.Celt
             {
                 int yp = 0;
                 int t = trig_ptr;
-                for (i = 0; i < N4; i++)
+                i = 0;
+#if NET8_0_OR_GREATER
+                if (Vector128.IsHardwareAccelerated)
+                {
+                    // two of i at a time, (re, im) of each as the loop below has them: of each lane its operations
+                    int[] twice = TrigTwice(l, shift, trig_ptr, N4);
+                    short[] bitrev = st.bitrev;
+                    int scale16 = (short)scale;
+                    ref int fr = ref MemoryMarshal.GetReference(f);
+                    ref int tr = ref twice[0];
+                    for (; i + 2 <= N4; i += 2)
+                    {
+                        Vector128<int> v = Vector128.LoadUnsafe(ref fr, (nuint)(2 * i));
+                        Vector128<int> y = SMul(v, Vector128.LoadUnsafe(ref tr, (nuint)(2 * i)))
+                            + SMul(Vector128.Shuffle(v, Swap), Vector128.LoadUnsafe(ref tr, (nuint)(2 * N4 + 2 * i))) * NegEven;
+                        // MULT16_32_Q16 of the scale, then PSHR32
+                        y = scale * (y >> 16) + ((scale16 * (y & Vector128.Create(0xFFFF))) >> 16);
+                        y = (y + Vector128.Create((1 << scale_shift) >> 1)) >> scale_shift;
+                        Vector128<long> pairs = y.AsInt64();
+                        Unsafe.WriteUnaligned(ref Unsafe.As<int, byte>(ref f2[2 * bitrev[i]]), pairs.GetElement(0));
+                        Unsafe.WriteUnaligned(ref Unsafe.As<int, byte>(ref f2[2 * bitrev[i + 1]]), pairs.GetElement(1));
+                    }
+                    yp = 2 * i;
+                }
+#endif
+                for (; i < N4; i++)
                 {
                     short t0, t1;
                     int re, im, yr, yi;
@@ -141,7 +193,29 @@ namespace Concentus.Celt
                 int yp1 = output_ptr;
                 int yp2 = output_ptr + (stride * (N2 - 1));
                 int t = trig_ptr;
-                for (i = 0; i < N4; i++)
+                i = 0;
+#if NET8_0_OR_GREATER
+                if (Vector128.IsHardwareAccelerated)
+                {
+                    // two of i at a time: of each lane the operations of the loop below
+                    ref int fr = ref MemoryMarshal.GetReference(f2);
+                    ref int tr = ref TrigTwice(l, shift, trig_ptr, N4)[0];
+                    for (; i + 2 <= N4; i += 2)
+                    {
+                        Vector128<int> v = Vector128.LoadUnsafe(ref fr, (nuint)(2 * i));
+                        Vector128<int> y = SMul(Vector128.Shuffle(v, Swap), Vector128.LoadUnsafe(ref tr, (nuint)(2 * N4 + 2 * i)))
+                            + SMul(v, Vector128.LoadUnsafe(ref tr, (nuint)(2 * i))) * NegEven;
+                        output[yp1] = y.GetElement(0);
+                        output[yp2] = y.GetElement(1);
+                        output[yp1 + 2 * stride] = y.GetElement(2);
+                        output[yp2 - 2 * stride] = y.GetElement(3);
+                        yp1 += (4 * stride);
+                        yp2 -= (4 * stride);
+                    }
+                    fp = 2 * i;
+                }
+#endif
+                for (; i < N4; i++)
                 {
                     int yr, yi;
                     yr = KissFFT.S_MUL(f2[fp + 1], trig[t + N4 + i]) - KissFFT.S_MUL(f2[fp], trig[t + i]);
