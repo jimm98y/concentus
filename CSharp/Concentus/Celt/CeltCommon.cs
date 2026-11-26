@@ -219,8 +219,9 @@ namespace Concentus.Celt
                 {
                     int x2 = (Inlines.PSHR32(Inlines.MULT16_16(tmp[2 * i], tmp[2 * i]) + Inlines.MULT16_16(tmp[2 * i + 1], tmp[2 * i + 1]), 16));
                     mean += x2;
-                    tmp[i] = (mem0 + Inlines.PSHR32(x2 - mem0, 4));
-                    mem0 = tmp[i];
+                    // of the local, not read back of the memory just written: the next waits for it
+                    mem0 = (mem0 + Inlines.PSHR32(x2 - mem0, 4));
+                    tmp[i] = mem0;
                 }
 
                 mem0 = 0;
@@ -228,8 +229,8 @@ namespace Concentus.Celt
                 /* Backward pass to compute the pre-echo threshold */
                 for (i = len2 - 1; i >= 0; i--)
                 {
-                    tmp[i] = (mem0 + Inlines.PSHR32(tmp[i] - mem0, 3));
-                    mem0 = tmp[i];
+                    mem0 = (mem0 + Inlines.PSHR32(tmp[i] - mem0, 3));
+                    tmp[i] = mem0;
                     maxE = Inlines.MAX16(maxE, (mem0));
                 }
                 /*for (i=0;i<len2;i++)printf("%f ", tmp[i]/mean);printf("\n");*/
