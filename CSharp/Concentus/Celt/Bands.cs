@@ -43,6 +43,9 @@ namespace Concentus.Celt
     using System.Diagnostics;
     using System.Numerics;
     using System.Runtime.InteropServices;
+#if NET7_0_OR_GREATER
+    using System.Runtime.Intrinsics;
+#endif
 
     internal static class Bands
     {
@@ -704,8 +707,26 @@ namespace Concentus.Celt
         {
             int i, j;
             N0 >>= 1;
+            j = 0;
+#if NET7_0_OR_GREATER
+            // Of a stride of 1 or 2 a pair's two values are next to each other, or two apart: four values at a time, of each
+            // its other of the pair shuffled to its lane - the sum of the first of a pair, the difference of the second
+            if (Vector128.IsHardwareAccelerated && stride <= 2)
+            {
+                Vector128<int> other = stride == 1 ? Vector128.Create(1, 0, 3, 2) : Vector128.Create(2, 3, 0, 1);
+                Vector128<int> sign = stride == 1 ? Vector128.Create(1, -1, 1, -1) : Vector128.Create(1, 1, -1, -1);
+                Vector128<int> q = Vector128.Create((int)((short)(0.5 + (.70710678f) * (((int)1) << (15))))), round = Vector128.Create(1 << 14);
+                int at = 0;
+                for (; at + 4 <= 2 * N0 * stride; at += 4)
+                {
+                    Vector128<int> t = q * Vector128.Create((ReadOnlySpan<int>)X.Slice(at, 4));
+                    ((((Vector128.Shuffle(t, other) + t * sign + round) >> 15) << 16) >> 16).CopyTo(X.Slice(at, 4));
+                }
+                j = at / (2 * stride);
+            }
+#endif
             // the pairs in the order of memory, not of i first: each pair is of its own two values alone
-            for (j = 0; j < N0; j++)
+            for (; j < N0; j++)
             {
                 i = 0;
 #if NET7_0_OR_GREATER
