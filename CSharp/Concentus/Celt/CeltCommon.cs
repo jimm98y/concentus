@@ -163,6 +163,10 @@ namespace Concentus.Celt
             return target;
         }
 
+#if NET8_0_OR_GREATER
+        // its stackalloc of no zeroing: written whole before it is read
+        [System.Runtime.CompilerServices.SkipLocalsInit]
+#endif
         internal static int transient_analysis(int[][] input, int len, int C,
                                   out int tf_estimate, out int tf_chan)
         {

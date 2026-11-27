@@ -73,6 +73,10 @@ namespace Concentus.Celt
         }
 #endif
 
+#if NET8_0_OR_GREATER
+        // its stackalloc of no zeroing: written whole before it is read
+        [System.Runtime.CompilerServices.SkipLocalsInit]
+#endif
         internal static void clt_mdct_forward(MDCTLookup l, Span<int> input, int input_ptr, Span<int> output, int output_ptr,
             int[] window, int overlap, int shift, int stride)
         {

@@ -103,6 +103,10 @@ namespace Concentus.Celt
             }
         }
 
+#if NET8_0_OR_GREATER
+        // its stackalloc of no zeroing: written whole before it is read
+        [System.Runtime.CompilerServices.SkipLocalsInit]
+#endif
         internal static void celt_fir5(Span<int> x,
                 Span<int> num,
                 Span<int> y,
@@ -360,6 +364,10 @@ namespace Concentus.Celt
 
         private static readonly int[] second_check = { 0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2 };
 
+#if NET8_0_OR_GREATER
+        // its stackalloc of no zeroing: written whole before it is read
+        [System.Runtime.CompilerServices.SkipLocalsInit]
+#endif
         internal static int remove_doubling(Span<int> x, int maxperiod, int minperiod,
             int N, ref int T0_, int prev_period, int prev_gain)
         {
