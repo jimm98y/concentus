@@ -121,18 +121,22 @@ namespace Concentus
             shift = Inlines.celt_ilog2(Fs / (cutoff_Hz * 3));
             for (c = 0; c < channels; c++)
             {
+                // the memory of locals: of the array, each sample waited for the store of the one before
+                int mem0 = hp_mem[2 * c], mem1 = hp_mem[2 * c + 1];
                 for (i = 0; i < len; i++)
                 {
                     int x, tmp, y;
                     x = Inlines.SHL32(Inlines.EXTEND32(input[channels * i + c + input_ptr]), 15);
                     /* First stage */
-                    tmp = x - hp_mem[2 * c];
-                    hp_mem[2 * c] = hp_mem[2 * c] + Inlines.PSHR32(x - hp_mem[2 * c], shift);
+                    tmp = x - mem0;
+                    mem0 = mem0 + Inlines.PSHR32(x - mem0, shift);
                     /* Second stage */
-                    y = tmp - hp_mem[2 * c + 1];
-                    hp_mem[2 * c + 1] = hp_mem[2 * c + 1] + Inlines.PSHR32(tmp - hp_mem[2 * c + 1], shift);
+                    y = tmp - mem1;
+                    mem1 = mem1 + Inlines.PSHR32(tmp - mem1, shift);
                     output[channels * i + c + output_ptr] = Inlines.EXTRACT16(Inlines.SATURATE(Inlines.PSHR32(y, 15), 32767));
                 }
+                hp_mem[2 * c] = mem0;
+                hp_mem[2 * c + 1] = mem1;
             }
         }
 
