@@ -75,10 +75,10 @@ namespace Concentus.Celt
             {
                 int mid = (lo + hi + 1) >> 1;
                 /* OPT: Make sure this is implemented with a conditional move */
-                if ((int)cache[cache_ptr + mid] >= bits)
-                    hi = mid;
-                else
-                    lo = mid;
+                // of no branch, as good as random: all ones of cache[mid] >= bits
+                int ge = ~((cache[cache_ptr + mid] - bits) >> 31);
+                hi = (mid & ge) | (hi & ~ge);
+                lo = (lo & ge) | (mid & ~ge);
             }
             if (bits - (lo == 0 ? -1 : (int)cache[cache_ptr + lo]) <= (int)cache[cache_ptr + hi] - bits)
                 return lo;
