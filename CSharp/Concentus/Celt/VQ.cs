@@ -353,7 +353,10 @@ namespace Concentus.Celt
                 rcp = Inlines.EXTRACT16(Inlines.MULT16_32_Q16((K - 1), Inlines.celt_rcp(sum)));
                 j = 0;
 #if NET7_0_OR_GREATER
-                j = ProjectVector(X.Slice(X_ptr, N), iy, y, rcp, ref yy, ref xy, ref pulsesLeft);
+                // of locals of its own: of one passed by reference, the search below reads it of the stack of each position
+                int pyy = yy, pxy = xy, pleft = pulsesLeft;
+                j = ProjectVector(X.Slice(X_ptr, N), iy, y, rcp, ref pyy, ref pxy, ref pleft);
+                yy = pyy; xy = pxy; pulsesLeft = pleft;
 #endif
                 for (; j < N; j++)
                 {
