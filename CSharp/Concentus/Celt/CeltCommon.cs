@@ -42,6 +42,9 @@ namespace Concentus.Celt
     using Concentus.Enums;
     using System;
     using System.Diagnostics;
+#if NET7_0_OR_GREATER
+    using V128 = System.Runtime.Intrinsics.Vector128;
+#endif
     using System.Numerics;
 
     internal class CeltCommon
@@ -396,7 +399,26 @@ namespace Concentus.Celt
             /* Fast path for the normal 48kHz case and no clipping */
             if (coef[1] == 0 && upsample == 1 && clip == 0)
             {
-                for (i = 0; i < N; i++)
+                i = 0;
+#if NET7_0_OR_GREATER
+                // of one channel, eight at a time after the first: of each lane the scalar's operations, its memory the sample before
+                if (CC == 1 && V128.IsHardwareAccelerated && N >= 9)
+                {
+                    ref short pr = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(pcmp.Slice(pcmp_ptr, N));
+                    ref int ir = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(inp.Slice(inp_ptr, N));
+                    ir = Inlines.SHL32(pr, CeltConstants.SIG_SHIFT) - m;
+                    var vc = V128.Create(coef0);
+                    for (i = 1; i <= N - 8; i += 8)
+                    {
+                        var (lo, hi) = V128.Widen(V128.LoadUnsafe(ref pr, (nuint)i));
+                        var (plo, phi) = V128.Widen(V128.LoadUnsafe(ref pr, (nuint)(i - 1)));
+                        V128.StoreUnsafe(V128.ShiftLeft(lo, CeltConstants.SIG_SHIFT) - V128.ShiftRightArithmetic(vc * plo, 15 - CeltConstants.SIG_SHIFT), ref ir, (nuint)i);
+                        V128.StoreUnsafe(V128.ShiftLeft(hi, CeltConstants.SIG_SHIFT) - V128.ShiftRightArithmetic(vc * phi, 15 - CeltConstants.SIG_SHIFT), ref ir, (nuint)(i + 4));
+                    }
+                    m = Inlines.SHR32(Inlines.MULT16_16(coef0, pcmp[pcmp_ptr + i - 1]), 15 - CeltConstants.SIG_SHIFT);
+                }
+#endif
+                for (; i < N; i++)
                 {
                     int x = pcmp[pcmp_ptr + (CC * i)];
                     /* Apply pre-emphasis */
