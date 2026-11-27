@@ -42,6 +42,10 @@ namespace Concentus.Celt
     using System;
     using System.Diagnostics;
     using System.Numerics;
+#if NET7_0_OR_GREATER
+    using System.Runtime.Intrinsics;
+    using VEC = System.Runtime.Intrinsics.Vector128;
+#endif
 
     internal static class Pitch
     {
@@ -118,7 +122,30 @@ namespace Concentus.Celt
             mem2 = mem[2];
             mem3 = mem[3];
             mem4 = mem[4];
-            for (i = 0; i < N; i++)
+            i = 0;
+#if NET7_0_OR_GREATER
+            // of four at a time, of the scalar's operations: the input of a copy behind its memory, as the output is written
+            //  over it
+            if (VEC.IsHardwareAccelerated && N >= 8 && N <= 2048)
+            {
+                Span<int> t = stackalloc int[N + 5];
+                t[0] = mem4; t[1] = mem3; t[2] = mem2; t[3] = mem1; t[4] = mem0;
+                x.Slice(0, N).CopyTo(t.Slice(5));
+                ref int tr = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(t);
+                ref int yr = ref System.Runtime.InteropServices.MemoryMarshal.GetReference(y);
+                var v0 = VEC.Create(num0); var v1 = VEC.Create(num1); var v2 = VEC.Create(num2); var v3 = VEC.Create(num3); var v4 = VEC.Create(num4);
+                var half = VEC.Create(1 << (CeltConstants.SIG_SHIFT - 1));
+                for (; i <= N - 4; i += 4)
+                {
+                    var sum = VEC.ShiftLeft(VEC.LoadUnsafe(ref tr, (nuint)(i + 5)), CeltConstants.SIG_SHIFT)
+                        + v0 * VEC.LoadUnsafe(ref tr, (nuint)(i + 4)) + v1 * VEC.LoadUnsafe(ref tr, (nuint)(i + 3)) + v2 * VEC.LoadUnsafe(ref tr, (nuint)(i + 2))
+                        + v3 * VEC.LoadUnsafe(ref tr, (nuint)(i + 1)) + v4 * VEC.LoadUnsafe(ref tr, (nuint)i);
+                    VEC.ShiftRightArithmetic(sum + half, CeltConstants.SIG_SHIFT).StoreUnsafe(ref yr, (nuint)i);
+                }
+                mem0 = t[i + 4]; mem1 = t[i + 3]; mem2 = t[i + 2]; mem3 = t[i + 1]; mem4 = t[i];
+            }
+#endif
+            for (; i < N; i++)
             {
                 int sum = Inlines.SHL32(Inlines.EXTEND32(x[i]), CeltConstants.SIG_SHIFT);
                 sum = Inlines.MAC16_16(sum, num0, (mem0));
@@ -167,7 +194,23 @@ namespace Concentus.Celt
                 shift++;
 
             int halflen = len >> 1; // cached for performance
-            for (i = 1; i < halflen; i++)
+            i = 1;
+#if NET7_0_OR_GREATER
+            // of four at a time, of the scalar's operations: of the pairs as 64 bits, their low halves the odd and their high
+            //  the even
+            if (VEC.IsHardwareAccelerated)
+            {
+                ref int xr = ref System.Runtime.InteropServices.MemoryMarshal.GetArrayDataReference(x[0]);
+                for (; i <= halflen - 4 && 2 * i + 8 < x[0].Length && i + 3 < x_lp.Length; i += 4)
+                {
+                    var a = VEC.LoadUnsafe(ref xr, (nuint)(2 * i - 1)).AsInt64(); var b = VEC.LoadUnsafe(ref xr, (nuint)(2 * i + 3)).AsInt64();
+                    var odd = VEC.Narrow(a, b); var even = VEC.Narrow(VEC.ShiftRightLogical(a, 32), VEC.ShiftRightLogical(b, 32));
+                    var next = VEC.Narrow(VEC.LoadUnsafe(ref xr, (nuint)(2 * i + 1)).AsInt64(), VEC.LoadUnsafe(ref xr, (nuint)(2 * i + 5)).AsInt64());
+                    VEC.ShiftRightArithmetic(VEC.ShiftRightArithmetic(VEC.ShiftRightArithmetic(odd + next, 1) + even, 1), shift).StoreUnsafe(ref x_lp[i]);
+                }
+            }
+#endif
+            for (; i < halflen; i++)
             {
                 x_lp[i] = (Inlines.SHR32(Inlines.HALF32(Inlines.HALF32(x[0][(2 * i - 1)] + x[0][(2 * i + 1)]) + x[0][2 * i]), shift));
             }
